@@ -74,8 +74,8 @@ public partial class SliderPatchesPlugin : OsuPlugin
     [SettingSource("Body Opacity", "Adjust the overall opacity of the slider body.")]
     public BindableFloat BodyOpacity { get; } = new BindableFloat
     {
-        Default = 0.7f,
-        Value = 0.7f,
+        Default = 1f,
+        Value = 1f,
         MinValue = 0.1f,
         MaxValue = 1f,
     };
@@ -174,7 +174,7 @@ public partial class SliderPatchesPlugin : OsuPlugin
 
         Color4 lastBaseAccent = Color4.White;
         Color4 lastBorderColour = Color4.White;
-        float lastBodyAlpha = 0.7f;
+        float lastBodyAlpha = 1f;
         BodyStyle lastBodyStyle = global::osu.Plugin.SliderPatches.BodyStyle.Default;
         BorderStyle lastBorderStyleType = global::osu.Plugin.SliderPatches.BorderStyle.Skin;
         float lastBorderLightness = 0f;
@@ -205,12 +205,7 @@ public partial class SliderPatchesPlugin : OsuPlugin
             if (!lastPluginEnabled)
             {
                 lastBaseAccent = LegacySliderBodyAccessor.GetBodyAccentColour(sliderBody, skin, headAccentColour.Value);
-                lastBorderColour = Color4.White;
-                lastBodyAlpha = 1f;
-                lastBodyStyle = global::osu.Plugin.SliderPatches.BodyStyle.Default;
-                lastBorderStyleType = global::osu.Plugin.SliderPatches.BorderStyle.Skin;
-                lastBorderLightness = 0f;
-                lastGlowWidth = 0.5f;
+                lastBorderColour = LegacySliderBodyAccessor.GetBorderColour(sliderBody, skin);
                 applyStyleToPath();
                 return;
             }
@@ -243,6 +238,7 @@ public partial class SliderPatchesPlugin : OsuPlugin
             if (!lastPluginEnabled)
             {
                 customPath.AccentColour = lastBaseAccent;
+                customPath.BorderColour = lastBorderColour;
                 return;
             }
 
@@ -266,6 +262,7 @@ public partial class SliderPatchesPlugin : OsuPlugin
                 Vertices = currentPath?.Vertices?.ToArray() ?? Array.Empty<Vector2>(),
                 Position = currentPath?.Position ?? Vector2.Zero,
                 AccentColour = currentPath?.AccentColour ?? Color4.White,
+                BorderColour = currentPath?.BorderColour ?? Color4.White,
                 AutoSizeAxes = Axes.None,
                 Size = sliderBody.Size,
             };
@@ -292,6 +289,11 @@ public partial class SliderPatchesPlugin : OsuPlugin
         enabledBindable.BindValueChanged(_ => updateStyle());
         headAccentColour.BindValueChanged(_ => updateStyle(), true);
 
+        // ── Listen for skin source changes (e.g. map skin slider track override changes) ──
+
+        Action onSkinChanged = () => sliderBody.Scheduler.AddOnce(updateStyle);
+        skin.SourceChanged += onSkinChanged;
+
         // ── Path version tracking (re-inject after RecyclePath) ──
 
         var pathVersion = drawableSlider.PathVersion.GetBoundCopy();
@@ -304,6 +306,7 @@ public partial class SliderPatchesPlugin : OsuPlugin
 
         sliderBody.add_OnDispose(() =>
         {
+            skin.SourceChanged -= onSkinChanged;
             bodyStyleBindable.UnbindAll();
             useComboBindable.UnbindAll();
             borderStyleBindable.UnbindAll();

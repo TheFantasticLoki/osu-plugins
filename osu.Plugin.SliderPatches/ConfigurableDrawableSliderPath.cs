@@ -4,7 +4,9 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
 using osu.Framework.Extensions.Color4Extensions;
+using osu.Game.Rulesets.Osu.Objects;
 using osu.Game.Rulesets.Osu.Skinning.Default;
+using osu.Game.Rulesets.Osu.Skinning.Legacy;
 using osuTK.Graphics;
 
 namespace osu.Plugin.SliderPatches;
@@ -112,93 +114,146 @@ public partial class ConfigurableDrawableSliderPath : DrawableSliderPath
 
     // ─── Style constants ───
 
-    private const float default_edge_alpha = 0.3f;
-    private const float default_centre_alpha = 0.8f;
-    private const float glow_centre_alpha = 0.0f;
-    private const float solid_alpha = 0.8f;
-    private const float inverted_edge_alpha = 0.0f;
-    private const float inverted_centre_alpha = 0.8f;
+    // (none currently needed)
 
     protected override Color4 ColourAt(float position)
     {
         // ── Border zone ──
-        if (CalculatedBorderPortion > 0f && position <= CalculatedBorderPortion)
+        // NOTE: the original LegacyDrawableSliderPath uses a hardcoded border_portion of 0.1875f,
+        // independent of BorderSize. We honour that for disabled mode.
+        if (PluginEnabled)
         {
-            if (!PluginEnabled)
-                return BorderColour;
-
-            Color4 borderColour = ComputedBorderColour;
-
-            if (ActiveBorderStyle == BorderStyle.CustomLightness)
+            // Plugin mode: use the base DrawableSliderPath's CalculatedBorderPortion.
+            if (CalculatedBorderPortion > 0f && position <= CalculatedBorderPortion)
             {
-                float l = ActiveBorderLightness;
-                borderColour = l >= 0
-                    ? borderColour.Lighten(l)
-                    : borderColour.Darken(-l);
-            }
+                Color4 borderColour = ComputedBorderColour;
 
-            return borderColour;
+                if (ActiveBorderStyle == BorderStyle.CustomLightness)
+                {
+                    float l = ActiveBorderLightness;
+                    borderColour = l >= 0
+                        ? borderColour.Lighten(l)
+                        : borderColour.Darken(-l);
+                }
+
+                return borderColour;
+            }
+        }
+        else
+        {
+            // Disabled mode: shadow + border zones matching LegacyDrawableSliderPath exactly.
+            Color4 shadow = new Color4(0, 0, 0, 0.25f);
+            const float shadow_portion = 1f - (OsuLegacySkinTransformer.LEGACY_CIRCLE_RADIUS / OsuHitObject.OBJECT_RADIUS);
+            const float border_portion = 0.1875f;
+
+            if (position <= shadow_portion)
+                return InterpolateColourLinear(position, Color4.Black.Opacity(0f), shadow, 0, shadow_portion);
+            if (position <= border_portion)
+                return InterpolateColourLinear(position, shadow, BorderColour, shadow_portion, border_portion);
+
+            // Body zone starts at border_portion.
+            position = (position - border_portion) / Math.Max(1f - border_portion, 0.001f);
+            Color4 outerColour = AccentColour.Darken(0.1f);
+            Color4 innerColour = Lighten(AccentColour, 0.5f);
+
+            return new Color4(
+                outerColour.R + (innerColour.R - outerColour.R) * position,
+                outerColour.G + (innerColour.G - outerColour.G) * position,
+                outerColour.B + (innerColour.B - outerColour.B) * position,
+                outerColour.A + (innerColour.A - outerColour.A) * position
+            );
         }
 
-        // ── Body zone ──
+        // ── Body zone (plugin mode) ──
         // Normalise position within the body region (0 = inner edge of border, 1 = centre)
         float bodyPosition = (position - CalculatedBorderPortion) / Math.Max(1f - CalculatedBorderPortion, 0.001f);
-        float finalAlpha;
-
-        if (!PluginEnabled)
-        {
-            // ── Exact default behaviour ──
-            // Linear interpolation from edge (0.8) to centre (0.3) across full body width.
-            // Uses AccentColour (set by the game's normal path colouring).
-            finalAlpha = (default_edge_alpha - (default_edge_alpha - default_centre_alpha) * bodyPosition) * AccentColour.A;
-            return new Color4(AccentColour.R, AccentColour.G, AccentColour.B, Math.Clamp(finalAlpha, 0f, 1f));
-        }
-
-        // ── Plugin-active body style ──
-
-        float edgeAlpha;
-        float centreAlpha;
+        Color4 baseAccent = ComputedAccentColour;
+        float bodyAlphaMultiplier = ComputedBodyAlpha;
 
         switch (ActiveBodyStyle)
         {
             case BodyStyle.Default:
-                // Classic linear gradient — no glow width involvement.
-                finalAlpha = (default_edge_alpha - (default_edge_alpha - default_centre_alpha) * bodyPosition) * ComputedBodyAlpha * ComputedAccentColour.A;
-                return new Color4(ComputedAccentColour.R, ComputedAccentColour.G, ComputedAccentColour.B, Math.Clamp(finalAlpha, 0f, 1f));
+            {
+                // Reproduce the original Darken(0.1f)/lighten(0.5f) RGB gradient,
+                // with ComputedBodyAlpha applied on top of the original alpha.
+                Color4 edgeColour = baseAccent.Darken(0.1f);
+                Color4 centreColour = Lighten(baseAccent, 0.5f);
+
+                return new Color4(
+                    edgeColour.R + (centreColour.R - edgeColour.R) * bodyPosition,
+                    edgeColour.G + (centreColour.G - edgeColour.G) * bodyPosition,
+                    edgeColour.B + (centreColour.B - edgeColour.B) * bodyPosition,
+                    (edgeColour.A + (centreColour.A - edgeColour.A) * bodyPosition) * bodyAlphaMultiplier
+                );
+            }
 
             case BodyStyle.GlowingEdge:
-                edgeAlpha = default_edge_alpha;
-                centreAlpha = glow_centre_alpha;
-                break;
+            {
+                // Edge is at full colour (Darken(0.1f) matches the original outer edge).
+                // Alpha falls off from 1 at the edge to 0 toward the centre.
+                // GlowWidth controls how quickly the falloff happens:
+                //   0 → instant (edge-only, immediate transparency)
+                //   0.5 → alpha reaches 0 about halfway to the centre
+                //   1 → alpha reaches 0 at the centre (full body width gradient)
+                Color4 edgeColour = baseAccent.Darken(0.1f);
+                float gw = Math.Clamp(ActiveGlowWidth, 0.01f, 1f);
+                float t = Math.Clamp(bodyPosition / gw, 0f, 1f);
+                float alpha = (1f - t) * bodyAlphaMultiplier;
+                return new Color4(edgeColour.R, edgeColour.G, edgeColour.B, alpha);
+            }
 
             case BodyStyle.SolidFill:
-                edgeAlpha = solid_alpha;
-                centreAlpha = solid_alpha;
-                break;
+            {
+                // Solid fill at the centre (brightest) colour.
+                Color4 centreColour = Lighten(baseAccent, 0.5f);
+                return new Color4(centreColour.R, centreColour.G, centreColour.B, 0.8f * bodyAlphaMultiplier);
+            }
 
             case BodyStyle.InvertedGradient:
-                edgeAlpha = inverted_edge_alpha;
-                centreAlpha = inverted_centre_alpha;
-                break;
+            {
+                // Darker at edge, brighter toward centre, with alpha going 0→0.8.
+                Color4 edgeColour = baseAccent.Darken(0.1f);
+                Color4 centreColour = Lighten(baseAccent, 0.5f);
+                float alpha = (0.0f + (0.8f - 0.0f) * bodyPosition) * bodyAlphaMultiplier;
+                return new Color4(
+                    edgeColour.R + (centreColour.R - edgeColour.R) * bodyPosition,
+                    edgeColour.G + (centreColour.G - edgeColour.G) * bodyPosition,
+                    edgeColour.B + (centreColour.B - edgeColour.B) * bodyPosition,
+                    alpha
+                );
+            }
 
             default:
-                return new Color4(ComputedAccentColour.R, ComputedAccentColour.G, ComputedAccentColour.B, ComputedAccentColour.A);
+                return baseAccent;
         }
+    }
 
-        // ── Glow width gradient ──
-        // For GlowingEdge: glowWidth controls how rapidly the alpha falls off from the edge.
-        //   glowWidth=0.1 → tight glow (very close to edge)
-        //   glowWidth=1.0 → gradient across full body width
-        // For SolidFill / InvertedGradient: uses full body width gradient (glowWidth=1 equivalent).
-        float gw = ActiveBodyStyle == BodyStyle.GlowingEdge ? Math.Clamp(ActiveGlowWidth, 0.01f, 1f) : 1f;
-        float t = Math.Clamp(bodyPosition / gw, 0f, 1f);
-        finalAlpha = (edgeAlpha + (centreAlpha - edgeAlpha) * t) * ComputedBodyAlpha * ComputedAccentColour.A;
+    /// <summary>
+    /// Linear RGB interpolation between two colours (alpha included).
+    /// </summary>
+    private static Color4 InterpolateColourLinear(float t, Color4 start, Color4 end, float tStart, float tEnd)
+    {
+        float progress = (t - tStart) / Math.Max(tEnd - tStart, 0.001f);
+        progress = Math.Clamp(progress, 0f, 1f);
 
         return new Color4(
-            ComputedAccentColour.R,
-            ComputedAccentColour.G,
-            ComputedAccentColour.B,
-            Math.Clamp(finalAlpha, 0f, 1f)
+            start.R + (end.R - start.R) * progress,
+            start.G + (end.G - start.G) * progress,
+            start.B + (end.B - start.B) * progress,
+            start.A + (end.A - start.A) * progress
         );
+    }
+
+    /// <summary>
+    /// Lightens a colour in a way more friendly to dark or strong colours (mirrors LegacySliderBody).
+    /// </summary>
+    private static Color4 Lighten(Color4 color, float amount)
+    {
+        amount *= 0.5f;
+        return new Color4(
+            Math.Min(1, color.R * (1 + 0.5f * amount) + 1 * amount),
+            Math.Min(1, color.G * (1 + 0.5f * amount) + 1 * amount),
+            Math.Min(1, color.B * (1 + 0.5f * amount) + 1 * amount),
+            color.A);
     }
 }
