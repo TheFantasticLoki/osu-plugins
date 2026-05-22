@@ -1,5 +1,7 @@
-﻿<Solution>
+<Solution>
   <Project Path="osu.Game.Plugins/osu.Game.Plugins.csproj" />
+  <Project Path="AccessItEasy/AccessItEasy.Fody/AccessItEasy.Fody.csproj" />
+  <Project Path="AccessItEasy/AccessItEasy/AccessItEasy.csproj" />
   <Project Path="osu.Game.Plugins.Skins/osu.Game.Plugins.Skins.csproj" />
   <Project Path="osu.Game.Rulesets.PluginsLoader/osu.Game.Rulesets.PluginsLoader.csproj" />
   <Project Path="osu.Game.Rulesets.PluginsLoader.Tests/osu.Game.Rulesets.PluginsLoader.Tests.csproj" />
