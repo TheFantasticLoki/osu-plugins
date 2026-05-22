@@ -12,4 +12,5 @@
   <Project Path="osu.Plugin.Template/osu.Plugin.Template.csproj" />
   <Project Path="osu.Plugin.Trainer/osu.Plugin.Trainer.csproj" />
   <Project Path="osu.Plugin.Patches/osu.Plugin.Patches.csproj" />
+  <Project Path="osu.Plugin.SliderPatches/osu.Plugin.SliderPatches.csproj" />
 </Solution>
