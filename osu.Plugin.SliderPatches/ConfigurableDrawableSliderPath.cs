@@ -112,8 +112,8 @@ public partial class ConfigurableDrawableSliderPath : DrawableSliderPath
 
     // ─── Style constants ───
 
-    private const float default_edge_alpha = 0.8f;
-    private const float default_centre_alpha = 0.3f;
+    private const float default_edge_alpha = 0.3f;
+    private const float default_centre_alpha = 0.8f;
     private const float glow_centre_alpha = 0.0f;
     private const float solid_alpha = 0.8f;
     private const float inverted_edge_alpha = 0.0f;
